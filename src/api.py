@@ -11,15 +11,30 @@ Implements REST API with:
 
 from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict
 import logging
 import time
 import json
 from datetime import datetime
 from functools import lru_cache
+from contextlib import asynccontextmanager
 
 from src.main_system import CyberbullyingSystem
+
+# lifespan handler replaces deprecated on_event
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Starting Cyberbullying Detection API v2.0")
+    try:
+        # Pre-load default system
+        system = get_system(use_ensemble=False, use_advanced_context=True)
+        logger.info("✓ Default system loaded")
+    except Exception as e:
+        logger.error(f"✗ Failed to load system: {e}")
+    yield
+    logger.info("🛑 Shutting down API")
+
 
 # Setup logging
 logging.basicConfig(
@@ -28,11 +43,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+# Initialize FastAPI app with lifespan support
 app = FastAPI(
     title="Advanced Cyberbullying Detection API",
     description="100% Context-Aware, Severity-Based, Explainable Detection",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan
 )
 
 # ============================================================================
@@ -47,7 +63,7 @@ class TextRequest(BaseModel):
     use_ensemble: bool = Field(False, description="Use 3-model ensemble (slower but more accurate)")
     use_advanced_context: bool = Field(True, description="Use advanced spaCy context analysis")
     
-    @validator('text')
+    @field_validator('text')
     def text_not_empty(cls, v):
         if not v.strip():
             raise ValueError('Text cannot be empty or only whitespace')
@@ -56,12 +72,12 @@ class TextRequest(BaseModel):
 
 class BatchRequest(BaseModel):
     """Batch detection request."""
-    texts: List[str] = Field(..., min_items=1, max_items=100,
+    texts: List[str] = Field(..., min_length=1, max_length=100,
                              description="List of texts to analyze")
     include_explanations: bool = Field(False, description="Include explanations (slower)")
     use_ensemble: bool = Field(False, description="Use ensemble")
     
-    @validator('texts')
+    @field_validator('texts')
     def texts_not_empty(cls, v):
         for text in v:
             if not text.strip():
@@ -186,6 +202,13 @@ async def detect_bullying(request: TextRequest):
         }))
         
         # Return structured response
+        # guarantee we return a valid float for confidence (handle None)
+        conf = result.get('confidence', 0.0)
+        try:
+            conf = float(conf) if conf is not None else 0.0
+        except Exception:
+            conf = 0.0
+
         return DetectionResult(
             text=request.text,
             is_bullying=result['is_bullying'],
@@ -194,7 +217,7 @@ async def detect_bullying(request: TextRequest):
             scores=result['scores'],
             explanation=result['explanation'],
             action=result['action'],
-            confidence=result.get('confidence', 0.0),
+            confidence=conf,
             highlighted_words=result.get('highlighted_words', []),
             context_info=result['context_info'],
             processing_time_ms=processing_time
@@ -239,6 +262,12 @@ async def detect_batch(request: BatchRequest, background_tasks: BackgroundTasks)
         for i, text in enumerate(request.texts):
             result = system.analyze(text)
             
+            # ensure confidence is float for batch results
+            conf = result.get('confidence', 0.0)
+            try:
+                conf = float(conf) if conf is not None else 0.0
+            except Exception:
+                conf = 0.0
             results.append(DetectionResult(
                 text=text,
                 is_bullying=result['is_bullying'],
@@ -247,7 +276,7 @@ async def detect_batch(request: BatchRequest, background_tasks: BackgroundTasks)
                 scores=result['scores'],
                 explanation=result['explanation'],
                 action=result['action'],
-                confidence=result.get('confidence', 0.0),
+                confidence=conf,
                 highlighted_words=[] if not request.include_explanations else result.get('highlighted_words', []),
                 context_info=result['context_info'],
                 processing_time_ms=0  # Filled in batch result
@@ -355,28 +384,6 @@ async def general_exception_handler(request, exc):
         status_code=500,
         content={"detail": "Internal server error"}
     )
-
-
-# ============================================================================
-# Startup/Shutdown
-# ============================================================================
-
-@app.on_event("startup")
-async def startup():
-    """Initialize models on startup."""
-    logger.info("🚀 Starting Cyberbullying Detection API v2.0")
-    try:
-        # Pre-load default system
-        system = get_system(use_ensemble=False, use_advanced_context=True)
-        logger.info("✓ Default system loaded")
-    except Exception as e:
-        logger.error(f"✗ Failed to load system: {e}")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Cleanup on shutdown."""
-    logger.info("🛑 Shutting down API")
 
 
 # ============================================================================

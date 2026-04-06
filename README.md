@@ -91,6 +91,54 @@ Then type comments to analyze:
 - View detailed detection report with LIME explanations
 - Type `exit` to quit
 
+### **Option 2: Web UI (Streamlit)**
+A polished, chat‑style interface is available via Streamlit. It can call the FastAPI backend or run the engine directly.
+
+1. Install dependencies if not already done:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Start the backend in one terminal (required for API mode):
+   ```bash
+   uvicorn src.api:app --host 0.0.0.0 --port 8000
+   ```
+
+   The Streamlit sidebar will perform a quick health check against this URL and
+   warn you if the service is unreachable or returning errors.  If an API call
+   does fail the UI automatically falls back to the built‑in engine and displays
+   the original error message so you understand why the request failed.
+3. In another terminal launch the UI:
+   ```bash
+   streamlit run ui_streamlit.py
+   ```
+
+   **Note:** The UI processes your input before rendering the conversation, so
+   replies appear immediately on first send. If you notice stale results, make
+   sure you have restarted the backend after pulling any code changes.
+
+   The backend now ensures that every response contains a numeric `confidence`
+   value (zero for clean text). Earlier versions returned `null` for innocuous
+   inputs which caused HTTP 400 errors; updating the server and restarting it
+   will fix those issues.
+
+### **Option 3: Containerized Deployment**
+A `Dockerfile` is included which starts both FastAPI and the Streamlit UI on separate ports.
+
+```bash
+# build image
+docker build -t cyberbullying-app .
+# run container (8000=API, 8501=UI)
+docker run -p 8000:8000 -p 8501:8501 cyberbullying-app
+```
+
+Browse to `http://localhost:8501` for the UI; API available at `http://localhost:8000`.
+4. The home page provides a full description of the system; click **Open analyzer** to begin chatting.
+
+You can toggle settings in the sidebar and clear the conversation as needed.  
+The sidebar also lets you specify the API base URL and request timeout; if an API call fails or times out the interface will automatically fall back to the local inference engine (if available) and notify you.
+
+If you prefer to skip the backend entirely, uncheck the “Send requests to local API” option – the UI will invoke the detection engine directly.
+
 ### **Option 2: Batch Predictions** (For Dataset Analysis)
 ```bash
 python -m src.generate_predictions data/test.csv

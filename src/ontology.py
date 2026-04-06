@@ -35,7 +35,10 @@ CYBERBULLYING_ONTOLOGY = {
     "clean": {
         "severity": "NONE",
         "explanation": "No cyberbullying detected.",
-        "intervention": "NO_ACTION"
+        "intervention": "NO_ACTION",
+        # default members to satisfy API response model
+        "confidence": 0.0,
+        "detected_label": "clean"
     }
 }
 
@@ -85,7 +88,11 @@ def get_intervention_plan(predicted_labels_or_scores, min_score=None):
             best_score = score
 
     if not best_label:
-        return CYBERBULLYING_ONTOLOGY["clean"]
+        plan = CYBERBULLYING_ONTOLOGY["clean"].copy()
+        # ensure fields present
+        plan.setdefault('confidence', 0.0)
+        plan.setdefault('detected_label', 'clean')
+        return plan
 
     # Build the plan and compute a calibrated confidence score
     plan = CYBERBULLYING_ONTOLOGY.get(best_label, CYBERBULLYING_ONTOLOGY["clean"]).copy()
